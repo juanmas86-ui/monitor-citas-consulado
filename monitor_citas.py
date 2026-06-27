@@ -18,11 +18,10 @@ BOOKITIT_URL = 'https://www.citaconsular.es/es/hosteds/widgetdefault/2517d2c8d72
 EMAIL_TO = 'juanmas86@gmail.com'
 EMAIL_FROM = 'juanmas86@gmail.com'
 GMAIL_PASSWORD = os.getenv('GMAIL_PASSWORD')
-INTERVALO_MINUTOS = 5
 
 def log(mensaje):
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    print(f'[{timestamp}] {mensaje}')
+    print(f'[{timestamp}] {mensaje}', flush=True)
 
 def enviar_email(asunto, cuerpo):
     try:
@@ -36,20 +35,21 @@ def enviar_email(asunto, cuerpo):
         msg.attach(MIMEText(cuerpo, 'plain'))
         server.send_message(msg)
         server.quit()
-        log('✅ Email enviado')
+        log('✅ Email enviado correctamente')
         return True
     except Exception as e:
-        log(f'❌ Error email: {e}')
+        log(f'❌ Error al enviar email: {e}')
         return False
 
 def abrir_navegador():
     try:
         options = webdriver.ChromeOptions()
-        options.add_argument('--headless')
+        options.add_argument('--headless=new')
         options.add_argument('--disable-gpu')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-blink-features=AutomationControlled')
+        options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
         return driver
@@ -66,102 +66,133 @@ def chequear_disponibilidad():
             return False
         
         log('🌐 Navegando a la página...')
-        driver.get(BOOKITIT_URL)
-        
-        log('⏳ Paso 1: Esperando 2.10 minutos antes de monitorear Continuar...')
-        time.sleep(130)
-        log('✅ Cloudflare completado')
-        
-        log('🔘 Paso 2: Intentando clickear Aceptar...')
+        driver.set_page_load_timeout(30)
         try:
-            btn = WebDriverWait(driver, 3).until(
+            driver.get(BOOKITIT_URL)
+        except:
+            log('⚠️  Timeout en navegación, continuando')
+        
+        log('⏳ Esperando 15 segundos para que cargue JavaScript...')
+        time.sleep(15)
+        
+        log('🔘 Intentando clickear Aceptar...')
+        try:
+            btn = WebDriverWait(driver, 5).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[type="submit"]'))
             )
             btn.click()
             log('   ✅ Botón Aceptar clickeado')
             time.sleep(2)
-        except Exception as e:
-            log(f'   ⚠️  Botón Aceptar no encontrado (normal): {str(e)[:40]}')
+        except:
+            log('   ⚠️  Botón Aceptar no encontrado')
         
-        log('🔘 Paso 3: Monitoreando por botón Continuar (hasta 1 minuto)...')
+        log('🔘 Buscando botón Continuar (90 segundos)...')
         boton_encontrado = False
         tiempo_inicio = time.time()
-        timeout_busqueda = 60
         
-        while time.time() - tiempo_inicio < timeout_busqueda:
+        while time.time() - tiempo_inicio < 90:
             try:
                 xpath = "//button[contains(text(), 'Continuar')] | //button[contains(text(), 'Continue')]"
-                btn = driver.find_element(By.XPATH, xpath)
-                if btn.is_displayed():
-                    log('   ✅ ¡Botón Continuar encontrado! Clickeando...')
-                    btn.click()
-                    boton_encontrado = True
-                    time.sleep(3)
+                botones = driver.find_elements(By.XPATH, xpath)
+                for btn in botones:
+                    if btn.is_displayed():
+                        log('   ✅ ¡Botón Continuar encontrado! Clickeando...')
+                        driver.execute_script("arguments[0].click();", btn)
+                        boton_encontrado = True
+                        time.sleep(3)
+                        break
+                if boton_encontrado:
                     break
             except:
                 pass
             
-            time.sleep(1)
+            time.sleep(2)
         
         if not boton_encontrado:
-            log('   ⚠️  Botón no encontrado en 1 minuto, continuando de todas formas')
+            log('   ⚠️  Botón Continuar no encontrado después de 90 segundos')
         
-        log('🔍 Paso 4: Obteniendo HTML y chequeando disponibilidad...')
+        log('🔍 Analizando disponibilidad...')
+        time.sleep(3)
         html = driver.page_source
         
-        if 'No hay horas disponibles' in html:
-            log('❌ Sin citas disponibles')
+        # Criterios POSITIVOS (debe contener alguno de estos)
+        indicadores_citas = [
+            'timeSlots',           # Bookitit típicamente usa timeSlots
+            'Available',           # Horarios disponibles en inglés
+            'Disponible',          # Horarios disponibles en español
+            'appointment',         # Cita disponible
+            'cita',                # Cita en español
+            '08:',                 # Hora específica
+            '09:',
+            '10:',
+            '11:',
+            '12:',
+            '13:',
+            '14:',
+            '15:',
+            '16:',
+            '17:',
+        ]
+        
+        # Criterios NEGATIVOS (indica definitivamente que NO hay)
+        indicadores_sin_citas = [
+            'No hay horas disponibles',
+            'no available',
+            'sin disponibilidad',
+            'No appointments available',
+            'Currently unavailable',
+        ]
+        
+        # Primero: verificar definitivamente que NO hay
+        tiene_negativo = any(texto in html for texto in indicadores_sin_citas)
+        if tiene_negativo:
+            log('❌ Página confirma: NO HAY CITAS')
             return False
-        else:
-            log('✅ ¡HAY CITAS DISPONIBLES!')
+        
+        # Segundo: buscar indicadores positivos
+        tiene_positivo = any(texto in html for texto in indicadores_citas)
+        
+        if tiene_positivo:
+            log('✅ ¡¡HAY CITAS DISPONIBLES!!')
             return True
+        else:
+            log('⚠️  Página no contiene indicadores claros (probablemente sin citas)')
+            return False
         
     except Exception as e:
         log(f'❌ Error general: {e}')
         return False
     finally:
         if driver:
-            log('🔒 Cerrando navegador')
             try:
                 driver.quit()
             except:
                 pass
 
-def monitorear():
+def main():
     log('=' * 70)
     log('MONITOR DE CITAS - CONSULADO ESPAÑA CÓRDOBA')
     log(f'Email: {EMAIL_TO}')
-    log(f'Intervalo: {INTERVALO_MINUTOS} minutos')
     log('=' * 70)
     
-    primer_chequeo = True
-    
-    while True:
-        try:
-            log('\n🔍 CHEQUEANDO DISPONIBILIDAD...')
-            hay_citas = chequear_disponibilidad()
-            
-            if hay_citas:
-                log('\n📧 Enviando email de alerta...')
-                enviar_email('🚨 ¡CITAS DISPONIBLES! Consulado España - Córdoba', f'Entra acá: {BOOKITIT_URL}')
-                log('\n' + '=' * 70)
-                log('✅ CITAS ENCONTRADAS - SCRIPT PAUSADO')
-                log('=' * 70)
-                break
-            
-            if not primer_chequeo:
-                log(f'\n⏰ Próximo chequeo en {INTERVALO_MINUTOS} minutos')
-                time.sleep(INTERVALO_MINUTOS * 60)
-            
-            primer_chequeo = False
-            
-        except KeyboardInterrupt:
-            log('\n⏹️  Script detenido por usuario')
-            break
-        except Exception as e:
-            log(f'❌ Error en loop principal: {e}')
-            log(f'⏰ Reintentando en {INTERVALO_MINUTOS} minutos')
-            time.sleep(INTERVALO_MINUTOS * 60)
+    try:
+        log('\n🔍 CHEQUEANDO DISPONIBILIDAD...')
+        hay_citas = chequear_disponibilidad()
+        
+        if hay_citas:
+            log('\n📧 ¡¡ENVIANDO EMAIL DE ALERTA!!')
+            enviar_email(
+                '🚨 ¡¡CITAS DISPONIBLES!! Consulado España - Córdoba',
+                f'¡¡HAY CITAS DISPONIBLES EN EL CONSULADO!!\n\nEntra urgente:\n{BOOKITIT_URL}'
+            )
+            log('=' * 70)
+            log('✅ ¡¡CITAS ENCONTRADAS!! EMAIL ENVIADO')
+            log('=' * 70)
+        else:
+            log('\n❌ Sin citas en este momento')
+        
+    except Exception as e:
+        log(f'❌ Error en main: {e}')
 
 if __name__ == '__main__':
-    monitorear()
+    main()
