@@ -4,7 +4,7 @@
 import os
 import time
 import smtplib
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from selenium import webdriver
@@ -19,6 +19,8 @@ EMAIL_TO = 'juanmas86@gmail.com'
 EMAIL_FROM = 'juanmas86@gmail.com'
 GMAIL_PASSWORD = os.getenv('GMAIL_PASSWORD')
 INTERVALO_MINUTOS = 5
+HEARTBEAT_HORAS = 12
+HEARTBEAT_FILE = '/tmp/last_heartbeat.txt'
 
 def log(mensaje):
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -41,6 +43,61 @@ def enviar_email(asunto, cuerpo):
     except Exception as e:
         log(f'❌ Error email: {e}')
         return False
+
+def deberia_enviar_heartbeat():
+    """Verifica si deben pasar 12 horas desde el último heartbeat"""
+    if not os.path.exists(HEARTBEAT_FILE):
+        return True
+    
+    try:
+        with open(HEARTBEAT_FILE, 'r') as f:
+            last_time_str = f.read().strip()
+        last_time = datetime.fromisoformat(last_time_str)
+        ahora = datetime.now()
+        
+        if (ahora - last_time) >= timedelta(hours=HEARTBEAT_HORAS):
+            return True
+    except:
+        return True
+    
+    return False
+
+def guardar_heartbeat():
+    """Guarda el timestamp del último heartbeat"""
+    try:
+        with open(HEARTBEAT_FILE, 'w') as f:
+            f.write(datetime.now().isoformat())
+        log('💾 Heartbeat guardado')
+    except Exception as e:
+        log(f'⚠️  No se pudo guardar heartbeat: {e}')
+
+def enviar_heartbeat():
+    """Envía email de confirmación de que el script está funcionando"""
+    ahora = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    asunto = '✅ Monitor de Citas - Sistema Funcionando Correctamente'
+    cuerpo = f"""Hola Juan,
+
+Tu monitor de citas del Consulado de España está funcionando correctamente.
+
+Estado: ✅ ACTIVO
+Última verificación: {ahora}
+Intervalo de chequeos: {INTERVALO_MINUTOS} minutos
+Email: {EMAIL_TO}
+
+El script sigue monitoreando la disponibilidad de citas. 
+Cuando encuentre citas, recibirás una alerta inmediata.
+
+Próximo aviso de estado: en {HEARTBEAT_HORAS} horas
+
+---
+Monitor de Citas - Consulado España Córdoba
+"""
+    
+    if enviar_email(asunto, cuerpo):
+        guardar_heartbeat()
+        log(f'💚 HEARTBEAT: Confirmación de funcionamiento enviada')
+        return True
+    return False
 
 def abrir_navegador():
     try:
@@ -144,7 +201,13 @@ def monitorear():
     log('=' * 70)
     log('MONITOR DE CITAS - CONSULADO ESPAÑA CÓRDOBA')
     log(f'Email: {EMAIL_TO}')
+    log(f'Heartbeat cada: {HEARTBEAT_HORAS} horas')
     log('=' * 70)
+    
+    # Chequear si necesita enviar heartbeat al iniciar
+    if deberia_enviar_heartbeat():
+        log('\n💚 Enviando heartbeat de inicio...')
+        enviar_heartbeat()
     
     primer_chequeo = True
     
@@ -154,12 +217,18 @@ def monitorear():
             hay_citas = chequear_disponibilidad()
             
             if hay_citas:
-                log('\n📧 Enviando email...')
+                log('\n📧 Enviando email de CITAS DISPONIBLES...')
                 enviar_email('🚨 ¡CITAS DISPONIBLES! Consulado España - Córdoba', f'Entra acá: {BOOKITIT_URL}')
+                guardar_heartbeat()  # Resetea el contador también
                 log('=' * 70)
                 log('✅ CITAS ENCONTRADAS')
                 log('=' * 70)
                 break
+            
+            # Chequear si es hora del heartbeat
+            if deberia_enviar_heartbeat():
+                log('\n💚 Es hora del HEARTBEAT (cada 12 horas)')
+                enviar_heartbeat()
             
             if not primer_chequeo:
                 log(f'\n⏰ Próximo chequeo en {INTERVALO_MINUTOS} minutos')
