@@ -4,7 +4,6 @@
 import os
 import time
 import smtplib
-import subprocess
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -34,17 +33,6 @@ def crear_directorio_screenshots():
         os.makedirs(SCREENSHOTS_DIR)
         log(f'📁 Directorio {SCREENSHOTS_DIR} creado')
 
-def tomar_screenshot(nombre):
-    """Toma un screenshot con nombre descriptivo"""
-    try:
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f'{SCREENSHOTS_DIR}/screenshot_{nombre}_{timestamp}.png'
-        # Aquí iría el driver.save_screenshot, pero lo haremos adentro
-        return filename
-    except Exception as e:
-        log(f'⚠️  Error preparando screenshot: {e}')
-        return None
-
 def enviar_email(asunto, cuerpo):
     try:
         server = smtplib.SMTP('smtp.gmail.com', 587)
@@ -63,7 +51,7 @@ def enviar_email(asunto, cuerpo):
         log(f'❌ Error email: {e}')
         return False
 
-def debiera_enviar_heartbeat():
+def deberia_enviar_heartbeat():
     """Verifica si deben pasar 12 horas desde el último heartbeat"""
     if not os.path.exists(HEARTBEAT_FILE):
         return True
@@ -159,26 +147,25 @@ def chequear_disponibilidad():
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         screenshot1 = f'{SCREENSHOTS_DIR}/01_despues_cloudflare_{timestamp}.png'
         driver.save_screenshot(screenshot1)
-        log(f'📸 Screenshot guardado: {screenshot1}')
+        log(f'📸 Screenshot 1 guardado')
         
-        log('🔘 Clickeando botón Aceptar...')
+        # ACEPTAR ALERT
+        log('🔘 Aceptando ALERT (Welcome / Bienvenido)...')
         try:
-            btn = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[type="submit"]'))
-            )
-            btn.click()
-            log('   ✅ Botón Aceptar clickeado')
+            alert = driver.switch_to.alert
+            alert.accept()
+            log('   ✅ ALERT aceptado')
             time.sleep(2)
         except Exception as e:
-            log(f'   ⚠️  Botón Aceptar no encontrado: {str(e)[:50]}')
+            log(f'   ⚠️  No hay ALERT o error: {str(e)[:50]}')
         
-        # SCREENSHOT 2: Después de intentar Aceptar
+        # SCREENSHOT 2: Después de aceptar alert
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        screenshot2 = f'{SCREENSHOTS_DIR}/02_despues_aceptar_{timestamp}.png'
+        screenshot2 = f'{SCREENSHOTS_DIR}/02_despues_alert_{timestamp}.png'
         driver.save_screenshot(screenshot2)
-        log(f'📸 Screenshot guardado: {screenshot2}')
+        log(f'📸 Screenshot 2 guardado')
         
-        log('🔘 Clickeando botón Continuar...')
+        log('🔘 Clickeando botón Continuar (verde)...')
         try:
             xpath = "//button[contains(text(), 'Continuar')] | //button[contains(text(), 'Continue')]"
             btn = WebDriverWait(driver, 5).until(
@@ -190,11 +177,11 @@ def chequear_disponibilidad():
         except Exception as e:
             log(f'   ⚠️  Botón Continuar no encontrado: {str(e)[:50]}')
         
-        # SCREENSHOT 3: Después de intentar Continuar
+        # SCREENSHOT 3: Después de continuar
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         screenshot3 = f'{SCREENSHOTS_DIR}/03_despues_continuar_{timestamp}.png'
         driver.save_screenshot(screenshot3)
-        log(f'📸 Screenshot guardado: {screenshot3}')
+        log(f'📸 Screenshot 3 guardado')
         
         log('⏳ Esperando 5 segundos para que cargue calendario...')
         time.sleep(5)
@@ -203,7 +190,7 @@ def chequear_disponibilidad():
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         screenshot4 = f'{SCREENSHOTS_DIR}/04_antes_analizar_{timestamp}.png'
         driver.save_screenshot(screenshot4)
-        log(f'📸 Screenshot guardado: {screenshot4}')
+        log(f'📸 Screenshot 4 guardado')
         
         log('🔍 Analizando disponibilidad...')
         html = driver.page_source
@@ -242,19 +229,6 @@ def chequear_disponibilidad():
             except:
                 pass
 
-def subir_screenshots_a_github():
-    """Intenta subir los screenshots al repositorio de GitHub"""
-    try:
-        log('📤 Intentando subir screenshots a GitHub...')
-        os.system('git config user.email "bot@github.com"')
-        os.system('git config user.name "GitHub Bot"')
-        os.system('git add screenshots/')
-        os.system('git commit -m "Agregar screenshots de monitoreo"')
-        os.system('git push')
-        log('✅ Screenshots subidos a GitHub')
-    except Exception as e:
-        log(f'⚠️  No se pudieron subir screenshots: {e}')
-
 def monitorear():
     log('=' * 70)
     log('MONITOR DE CITAS - CONSULADO ESPAÑA CÓRDOBA')
@@ -264,7 +238,7 @@ def monitorear():
     log('=' * 70)
     
     # Chequear si necesita enviar heartbeat al iniciar
-    if debiera_enviar_heartbeat():
+    if deberia_enviar_heartbeat():
         log('\n💚 Enviando heartbeat de inicio...')
         enviar_heartbeat()
     
@@ -274,9 +248,6 @@ def monitorear():
         try:
             log('\n🔍 CHEQUEANDO DISPONIBILIDAD...')
             hay_citas = chequear_disponibilidad()
-            
-            # Subir screenshots después de cada chequeo
-            subir_screenshots_a_github()
             
             if hay_citas:
                 log('\n📧 Enviando email de CITAS DISPONIBLES...')
@@ -288,7 +259,7 @@ def monitorear():
                 break
             
             # Chequear si es hora del heartbeat
-            if debiera_enviar_heartbeat():
+            if deberia_enviar_heartbeat():
                 log('\n💚 Es hora del HEARTBEAT (cada 12 horas)')
                 enviar_heartbeat()
             
