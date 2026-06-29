@@ -184,7 +184,7 @@ def monitorear():
                 guardar_heartbeat()
                 break
             
-            if debiera_enviar_heartbeat():
+            if deberia_enviar_heartbeat():
                 enviar_heartbeat()
             
             if not primer_chequeo:
