@@ -24,4 +24,4 @@ jobs:
     - name: Run monitor
       env:
         GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
-      run: python monitor_citas.py
+      run: python monitor_citas_test.py
